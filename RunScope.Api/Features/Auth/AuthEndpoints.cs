@@ -14,7 +14,7 @@ public static class AuthEndpoints
     {
         var group = app.MapGroup("/api/auth");
 
-        // GET /api/auth/me — update to use DB user ID from claim
+        // GET /api/auth/me
         group.MapGet("/me", async (HttpContext ctx, RunScopeDbContext db) =>
         {
             if (ctx.User.Identity?.IsAuthenticated != true)
@@ -33,15 +33,16 @@ public static class AuthEndpoints
                 email = user.Email,
                 name = user.Name,
                 avatarUrl = user.AvatarUrl,
+                unitPreference = user.UnitPreference.ToString(),
             });
         }).RequireAuthorization();
 
         // GET /api/auth/google — initiates OAuth flow
-        group.MapGet("/google", async (HttpContext ctx, string? returnUrl) =>
+        group.MapGet("/google", (HttpContext ctx, string? returnUrl) =>
         {
             var redirectUrl = $"/api/auth/google/callback?returnUrl={Uri.EscapeDataString(returnUrl ?? "/")}";
             var properties = new AuthenticationProperties { RedirectUri = redirectUrl };
-            await ctx.ChallengeAsync(GoogleDefaults.AuthenticationScheme, properties);
+            return Results.Challenge(properties, [GoogleDefaults.AuthenticationScheme]);
         });
 
         // POST /api/auth/sign-out

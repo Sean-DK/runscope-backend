@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using RunScope.Api.Features.Auth;
 using RunScope.Api.Features.Events;
 using RunScope.Api.Features.Routes;
+using RunScope.Api.Features.Users;
 using RunScope.Api.Hubs;
 using RunScope.Core.Data;
 using RunScope.Core.Models;
@@ -166,6 +167,7 @@ app.UseAuthorization();
 app.MapAuthEndpoints();
 app.MapRouteEndpoints();
 app.MapEventEndpoints();
+app.MapUserEndpoints();
 
 // SignalR hub
 app.MapHub<SpectatorHub>("/hubs/spectator");

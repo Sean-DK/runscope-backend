@@ -1,5 +1,11 @@
 ﻿namespace RunScope.Core.Models;
 
+public enum UnitPreference
+{
+    Miles,
+    Kilometers
+}
+
 public class User
 {
     public Guid Id { get; set; }
@@ -11,6 +17,8 @@ public class User
     public string Name { get; set; } = string.Empty;
 
     public string? AvatarUrl { get; set; }
+
+    public UnitPreference UnitPreference { get; set; } = UnitPreference.Miles;
 
     public DateTime CreatedAt { get; set; }
 
