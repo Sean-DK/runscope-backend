@@ -73,24 +73,9 @@ public static class RouteEndpoints
                 UpdatedAt = DateTime.UtcNow,
             };
 
-            route.Waypoints = request.Waypoints.Select((w, i) => new RouteWaypoint
-            {
-                Id = Guid.NewGuid(),
-                RouteId = route.Id,
-                Order = w.Order,
-                Longitude = w.Coordinates[0],
-                Latitude = w.Coordinates[1],
-            }).ToList();
-
-            route.Segments = request.Segments.Select(s => new RouteSegment
-            {
-                Id = Guid.NewGuid(),
-                RouteId = route.Id,
-                FromWaypointId = s.FromWaypointId,
-                ToWaypointId = s.ToWaypointId,
-                Distance = s.Distance,
-                PathJson = JsonSerializer.Serialize(s.Path),
-            }).ToList();
+            var (waypoints, segments) = BuildWaypointsAndSegments(route.Id, request.Waypoints, request.Segments);
+            route.Waypoints = waypoints;
+            route.Segments = segments;
 
             db.Routes.Add(route);
             await db.SaveChangesAsync();
@@ -113,13 +98,10 @@ public static class RouteEndpoints
 
             if (route is null) return Results.NotFound();
 
-            // Update scalar properties
             route.Name = request.Name;
             route.TotalDistance = request.TotalDistance;
             route.UpdatedAt = DateTime.UtcNow;
 
-            // Load and delete existing waypoints and segments separately
-            // to avoid EF Core concurrency tracking issues
             var existingWaypoints = await db.RouteWaypoints
                 .Where(w => w.RouteId == id)
                 .ToListAsync();
@@ -129,36 +111,14 @@ public static class RouteEndpoints
 
             db.RouteWaypoints.RemoveRange(existingWaypoints);
             db.RouteSegments.RemoveRange(existingSegments);
-
-            // Save deletions before adding new ones to avoid PK conflicts
             await db.SaveChangesAsync();
 
-            // Add new waypoints and segments
-            var newWaypoints = request.Waypoints.Select(w => new RouteWaypoint
-            {
-                Id = Guid.NewGuid(),
-                RouteId = route.Id,
-                Order = w.Order,
-                Longitude = w.Coordinates[0],
-                Latitude = w.Coordinates[1],
-            }).ToList();
-
-            var newSegments = request.Segments.Select(s => new RouteSegment
-            {
-                Id = Guid.NewGuid(),
-                RouteId = route.Id,
-                FromWaypointId = s.FromWaypointId,
-                ToWaypointId = s.ToWaypointId,
-                Distance = s.Distance,
-                PathJson = JsonSerializer.Serialize(s.Path),
-            }).ToList();
+            var (newWaypoints, newSegments) = BuildWaypointsAndSegments(route.Id, request.Waypoints, request.Segments);
 
             db.RouteWaypoints.AddRange(newWaypoints);
             db.RouteSegments.AddRange(newSegments);
-
             await db.SaveChangesAsync();
 
-            // Reload for the response DTO
             route.Waypoints = newWaypoints;
             route.Segments = newSegments;
 
@@ -247,6 +207,40 @@ public static class RouteEndpoints
         }).RequireAuthorization();
     }
 
+    private static (List<RouteWaypoint> waypoints, List<RouteSegment> segments) BuildWaypointsAndSegments(
+    Guid routeId,
+    List<WaypointRequest> waypointRequests,
+    List<SegmentRequest> segmentRequests)
+    {
+        // Map client-side IDs to new server-side GUIDs
+        var idMap = waypointRequests.ToDictionary(
+            w => w.ClientId,
+            w => Guid.NewGuid()
+        );
+
+        var waypoints = waypointRequests.Select(w => new RouteWaypoint
+        {
+            Id = idMap[w.ClientId],
+            RouteId = routeId,
+            Order = w.Order,
+            Longitude = w.Coordinates[0],
+            Latitude = w.Coordinates[1],
+        }).ToList();
+
+        var segments = segmentRequests.Select(s => new RouteSegment
+        {
+            Id = Guid.NewGuid(),
+            RouteId = routeId,
+            // Translate client IDs to server IDs using the map
+            FromWaypointId = idMap.TryGetValue(s.FromWaypointId, out var fromId) ? fromId : s.FromWaypointId,
+            ToWaypointId = idMap.TryGetValue(s.ToWaypointId, out var toId) ? toId : s.ToWaypointId,
+            Distance = s.Distance,
+            PathJson = JsonSerializer.Serialize(s.Path),
+        }).ToList();
+
+        return (waypoints, segments);
+    }
+
     private static Guid? GetUserId(HttpContext ctx)
     {
         var claim = ctx.User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -278,6 +272,6 @@ public static class RouteEndpoints
     };
 }
 
-public record WaypointRequest(int Order, double[] Coordinates);
+public record WaypointRequest(Guid ClientId, int Order, double[] Coordinates);
 public record SegmentRequest(Guid FromWaypointId, Guid ToWaypointId, double Distance, double[][] Path);
 public record UpsertRouteRequest(string Name, double TotalDistance, List<WaypointRequest> Waypoints, List<SegmentRequest> Segments);
