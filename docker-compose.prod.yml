@@ -1,0 +1,41 @@
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      SA_PASSWORD: ${SQL_SA_PASSWORD}
+      ACCEPT_EULA: Y
+      MSSQL_PID: Express
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    restart: unless-stopped
+    networks:
+      - internal
+
+  api:
+    image: runscope-api:latest
+    ports:
+      - "8082:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=RunScope;User Id=sa;Password=${SQL_SA_PASSWORD};TrustServerCertificate=True;
+      - Auth__Google__ClientId=${GOOGLE_CLIENT_ID}
+      - Auth__Google__ClientSecret=${GOOGLE_CLIENT_SECRET}
+      - Cors__AllowedOrigins=${ALLOWED_ORIGINS}
+    depends_on:
+      - sqlserver
+    restart: unless-stopped
+    networks:
+      - internal
+      - external
+    volumes:
+      - dataprotection_keys:/root/.aspnet/DataProtection-Keys
+volumes:
+  sqlserver_data:
+  dataprotection_keys:
+
+networks:
+  internal:
+    driver: bridge
+  external:
+    driver: bridge

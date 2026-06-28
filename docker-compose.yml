@@ -1,0 +1,14 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: RunScope.Api/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__DefaultConnection=${DB_CONNECTION_STRING}
+      - Auth__Google__ClientId=${GOOGLE_CLIENT_ID}
+      - Auth__Google__ClientSecret=${GOOGLE_CLIENT_SECRET}
+      - Cors__AllowedOrigins=${ALLOWED_ORIGINS}
+    restart: unless-stopped

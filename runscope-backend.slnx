@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".dockerignore" />
+    <File Path="deploy.ps1" />
+    <File Path="docker-compose.prod.yml" />
+    <File Path="docker-compose.yml" />
+  </Folder>
+  <Project Path="F:/Code/Running/RunScope/runscope-backend/RunScope.Api/RunScope.Api.csproj" />
+  <Project Path="F:/Code/Running/RunScope/runscope-backend/RunScope.Core/RunScope.Core.csproj" />
+</Solution>
