@@ -8,10 +8,19 @@ $STATIC_DIR = "/var/www/runscope"
 
 Write-Host "RunScope Deploy" -ForegroundColor Cyan
 
+# Version: days since 1996-08-22 + time of day (24h, seconds precision)
+$epoch = [datetime]"1996-08-22"
+$now = Get-Date
+$daysSinceEpoch = [math]::Floor(($now - $epoch).TotalDays)
+$timeOfDay = $now.ToString("HHmmss")
+$appVersion = "$daysSinceEpoch.$timeOfDay"
+
+Write-Host ">> Version: $appVersion" -ForegroundColor Cyan
+
 Write-Host "Building React app..." -ForegroundColor Yellow
 Push-Location $FRONTEND_DIR
 $mapboxToken = (Get-Content .env | Select-String "VITE_MAPBOX_TOKEN").ToString().Replace("VITE_MAPBOX_TOKEN=", "")
-$envContent = "VITE_MAPBOX_TOKEN=$mapboxToken`nVITE_API_BASE_URL=https://runscope.stablesea.net`nVITE_SIGNALR_HUB_URL=https://runscope.stablesea.net"
+$envContent = "VITE_MAPBOX_TOKEN=$mapboxToken`nVITE_API_BASE_URL=https://runscope.stablesea.net`nVITE_SIGNALR_HUB_URL=https://runscope.stablesea.net`nVITE_APP_VERSION=$appVersion"
 Set-Content .env.production $envContent
 npm run build
 Pop-Location
