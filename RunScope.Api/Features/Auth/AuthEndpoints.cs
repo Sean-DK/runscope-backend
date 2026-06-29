@@ -45,6 +45,56 @@ public static class AuthEndpoints
             return Results.Challenge(properties, [GoogleDefaults.AuthenticationScheme]);
         });
 
+        // POST /api/auth/exchange — exchange one-time token for session cookie (native app)
+        group.MapPost("/exchange", async (
+            HttpContext ctx,
+            RunScopeDbContext db,
+            ExchangeTokenRequest request) =>
+        {
+            var ott = await db.OneTimeTokens
+                .Include(t => t.User)
+                .FirstOrDefaultAsync(t =>
+                    t.Token == request.Token &&
+                    !t.Used &&
+                    t.ExpiresAt > DateTime.UtcNow);
+
+            if (ott is null)
+                return Results.BadRequest("Invalid or expired token.");
+
+            ott.Used = true;
+            await db.SaveChangesAsync();
+
+            var claims = new List<Claim>
+            {
+                new(ClaimTypes.NameIdentifier, ott.User.Id.ToString()),
+                new(ClaimTypes.Email,          ott.User.Email),
+                new(ClaimTypes.Name,           ott.User.Name),
+            };
+            if (ott.User.AvatarUrl is not null)
+                claims.Add(new("picture", ott.User.AvatarUrl));
+
+            var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+            var principal = new ClaimsPrincipal(identity);
+
+            await ctx.SignInAsync(
+                CookieAuthenticationDefaults.AuthenticationScheme,
+                principal,
+                new AuthenticationProperties
+                {
+                    IsPersistent = true,
+                    ExpiresUtc = DateTimeOffset.UtcNow.AddDays(30),
+                });
+
+            return Results.Ok(new
+            {
+                id = ott.User.Id,
+                email = ott.User.Email,
+                name = ott.User.Name,
+                avatarUrl = ott.User.AvatarUrl,
+                unitPreference = ott.User.UnitPreference.ToString(),
+            });
+        });
+
         // POST /api/auth/sign-out
         group.MapPost("/sign-out", async (HttpContext ctx) =>
         {
@@ -53,3 +103,5 @@ public static class AuthEndpoints
         });
     }
 }
+
+public record ExchangeTokenRequest(string Token);

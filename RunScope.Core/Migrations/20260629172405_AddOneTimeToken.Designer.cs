@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using RunScope.Core.Data;
 
@@ -11,9 +12,11 @@ using RunScope.Core.Data;
 namespace RunScope.Core.Migrations
 {
     [DbContext(typeof(RunScopeDbContext))]
-    partial class RunScopeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260629172405_AddOneTimeToken")]
+    partial class AddOneTimeToken
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

@@ -17,18 +17,35 @@ $appVersion = "$daysSinceEpoch.$timeOfDay"
 
 Write-Host ">> Version: $appVersion" -ForegroundColor Cyan
 
-Write-Host "Building React app..." -ForegroundColor Yellow
+# ---- Build React app for Web (PWA with service worker) ----
+Write-Host "Building React app for web..." -ForegroundColor Yellow
 Push-Location $FRONTEND_DIR
 $mapboxToken = (Get-Content .env | Select-String "VITE_MAPBOX_TOKEN").ToString().Replace("VITE_MAPBOX_TOKEN=", "")
-$envContent = "VITE_MAPBOX_TOKEN=$mapboxToken`nVITE_API_BASE_URL=https://runscope.stablesea.net`nVITE_SIGNALR_HUB_URL=https://runscope.stablesea.net`nVITE_APP_VERSION=$appVersion"
+$envContent = "VITE_API_BASE_URL=https://runscopeapi.stablesea.net`nVITE_MAPBOX_TOKEN=$mapboxToken`nVITE_SIGNALR_HUB_URL=https://runscopeapi.stablesea.net"
 Set-Content .env.production $envContent
+$env:VITE_APP_VERSION = $appVersion
 npm run build
+Remove-Item Env:\VITE_APP_VERSION -ErrorAction SilentlyContinue
 Pop-Location
 
+# ---- Upload React build to server ----
 Write-Host "Uploading React build..." -ForegroundColor Yellow
-ssh "${SERVER_USER}@${SERVER_HOST}" "rm -rf ${STATIC_DIR}/* && mkdir -p ${STATIC_DIR}"
+ssh "${SERVER_USER}@${SERVER_HOST}" "rm -rf ${STATIC_DIR}/*"
 scp -r "${FRONTEND_DIR}\dist" "${SERVER_USER}@${SERVER_HOST}:/tmp/runscope-dist"
 ssh "${SERVER_USER}@${SERVER_HOST}" "cp -r /tmp/runscope-dist/. ${STATIC_DIR}/ && rm -rf /tmp/runscope-dist"
+
+# ---- Build React app for Capacitor (no service worker) ----
+Write-Host "Building React app for Capacitor..." -ForegroundColor Yellow
+Push-Location $FRONTEND_DIR
+$env:BUILD_TARGET = "capacitor"
+$env:VITE_APP_VERSION = $appVersion
+npm run build
+Remove-Item Env:\BUILD_TARGET -ErrorAction SilentlyContinue
+Remove-Item Env:\VITE_APP_VERSION -ErrorAction SilentlyContinue
+# ---- Sync Capacitor build ----
+Write-Host "Syncing Capacitor build..." -ForegroundColor Yellow
+npx cap sync android
+Pop-Location
 
 Write-Host "Building API Docker image..." -ForegroundColor Yellow
 docker build -f RunScope.Api\Dockerfile -t runscope-api:latest .

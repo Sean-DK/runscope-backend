@@ -12,6 +12,7 @@ public class RunScopeDbContext(DbContextOptions<RunScopeDbContext> options)
     public DbSet<RouteSegment> RouteSegments => Set<RouteSegment>();
     public DbSet<Event> Events => Set<Event>();
     public DbSet<EventLocation> EventLocations => Set<EventLocation>();
+    public DbSet<OneTimeToken> OneTimeTokens => Set<OneTimeToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -82,6 +83,16 @@ public class RunScopeDbContext(DbContextOptions<RunScopeDbContext> options)
                 .HasForeignKey(l => l.EventId)
                 .OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(l => new { l.EventId, l.Timestamp });
+        });
+
+        modelBuilder.Entity<OneTimeToken>(e =>
+        {
+            e.HasKey(t => t.Id);
+            e.HasIndex(t => t.Token).IsUnique();
+            e.HasOne(t => t.User)
+                .WithMany()
+                .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

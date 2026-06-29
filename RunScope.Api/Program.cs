@@ -73,6 +73,7 @@ builder.Services.AddAuthentication(options =>
     options.Events.OnTicketReceived = async ctx =>
     {
         var db = ctx.HttpContext.RequestServices.GetRequiredService<RunScopeDbContext>();
+        var config = ctx.HttpContext.RequestServices.GetRequiredService<IConfiguration>();
 
         var googleId = ctx.Principal!.FindFirstValue(ClaimTypes.NameIdentifier)!;
         var email = ctx.Principal!.FindFirstValue(ClaimTypes.Email)!;
@@ -106,25 +107,40 @@ builder.Services.AddAuthentication(options =>
 
         // Replace principal with one containing the database user ID
         var claims = new List<Claim>
-        {
-            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new(ClaimTypes.Email, user.Email),
-            new(ClaimTypes.Name, user.Name),
-        };
-
+    {
+        new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+        new(ClaimTypes.Email,          user.Email),
+        new(ClaimTypes.Name,           user.Name),
+    };
         if (user.AvatarUrl is not null)
             claims.Add(new("picture", user.AvatarUrl));
 
         var identity = new ClaimsIdentity(
             claims,
             CookieAuthenticationDefaults.AuthenticationScheme);
-
         ctx.Principal = new ClaimsPrincipal(identity);
 
-        // Redirect to frontend callback page
+        // Generate a short-lived one-time token for native app auth.
+        // Included in the redirect URL so the Capacitor webview can exchange
+        // it for a session cookie via POST /api/auth/exchange.
+        var tokenBytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+        var token = Convert.ToBase64String(tokenBytes)
+            .Replace("+", "-").Replace("/", "_").Replace("=", "");
+
+        db.OneTimeTokens.Add(new OneTimeToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            Token = token,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(5),
+            Used = false,
+        });
+        await db.SaveChangesAsync();
+
+        var frontendBase = config["Cors:AllowedOrigins"]?.Split(',').First()
+            ?? "https://runscope.stablesea.net";
         var returnUrl = ctx.Properties?.RedirectUri ?? "/";
-        var frontendBase = builder.Configuration["Cors:AllowedOrigins"]?.Split(',').First() ?? "https://localhost:5173";
-        ctx.ReturnUri = $"{frontendBase}/auth/callback?returnUrl={Uri.EscapeDataString(returnUrl)}";
+        ctx.ReturnUri = $"{frontendBase}/auth/callback?returnUrl={Uri.EscapeDataString(returnUrl)}&token={token}";
     };
 });
 
