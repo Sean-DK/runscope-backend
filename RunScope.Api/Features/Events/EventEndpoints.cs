@@ -52,6 +52,27 @@ public static class EventEndpoints
             return Results.Created($"/api/events/{ev.Id}", ToDto(ev, route));
         }).RequireAuthorization();
 
+        // GET /api/events/active — returns the racer's current active event if one exists
+        group.MapGet("/active", async (HttpContext ctx, RunScopeDbContext db) =>
+        {
+            var userId = GetUserId(ctx);
+            if (userId is null) return Results.Unauthorized();
+
+            var ev = await db.Events
+                .Include(e => e.Route)
+                    .ThenInclude(r => r.Waypoints)
+                .Include(e => e.Route)
+                    .ThenInclude(r => r.Segments)
+                .Include(e => e.Locations.OrderByDescending(l => l.Timestamp).Take(1))
+                .FirstOrDefaultAsync(e =>
+                    e.UserId == userId &&
+                    (e.Status == EventStatus.Pending ||
+                     e.Status == EventStatus.Active ||
+                     e.Status == EventStatus.Finished));
+
+            return ev is null ? Results.NoContent() : Results.Ok(ToDto(ev, ev.Route));
+        }).RequireAuthorization();
+
         // GET /api/events/{id} — get event by ID (spectator join via link)
         group.MapGet("/{id:guid}", async (Guid id, RunScopeDbContext db) =>
         {
@@ -256,19 +277,27 @@ public static class EventEndpoints
         },
         status = ev.Status.ToString(),
         cancelReason = ev.CancelReason?.ToString(),
-        createdAt = ev.CreatedAt,
-        startedAt = ev.StartedAt,
-        finishedAt = ev.FinishedAt,
-        endedAt = ev.EndedAt,
+        createdAt = FormatUtc(ev.CreatedAt),
+        startedAt = FormatUtc(ev.StartedAt),
+        finishedAt = FormatUtc(ev.FinishedAt),
+        endedAt = FormatUtc(ev.EndedAt),
         lastLocation = ev.Locations.FirstOrDefault() is { } loc ? new
         {
             coordinates = new[] { loc.Longitude, loc.Latitude },
-            timestamp = loc.Timestamp,
+            timestamp = FormatUtc(loc.Timestamp),
             distanceFromStart = loc.DistanceFromStart,
             currentPaceSecondsPerMile = loc.CurrentPaceSecondsPerMile,
             averagePaceSecondsPerMile = loc.AveragePaceSecondsPerMile,
         } : null,
     };
+
+    private static string? FormatUtc(DateTime? dt) =>
+dt.HasValue
+    ? DateTime.SpecifyKind(dt.Value, DateTimeKind.Utc).ToString("O")
+    : null;
+
+    private static string FormatUtc(DateTime dt) =>
+        DateTime.SpecifyKind(dt, DateTimeKind.Utc).ToString("O");
 }
 
 public record CreateEventRequest(Guid RouteId);

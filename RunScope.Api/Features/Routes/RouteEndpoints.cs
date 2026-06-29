@@ -252,8 +252,8 @@ public static class RouteEndpoints
         id = r.Id,
         name = r.Name,
         totalDistance = r.TotalDistance,
-        createdAt = r.CreatedAt,
-        updatedAt = r.UpdatedAt,
+        createdAt = FormatUtc(r.CreatedAt),
+        updatedAt = FormatUtc(r.UpdatedAt),
         waypoints = r.Waypoints
             .OrderBy(w => w.Order)
             .Select(w => new
@@ -270,6 +270,9 @@ public static class RouteEndpoints
             path = JsonSerializer.Deserialize<double[][]>(s.PathJson),
         }),
     };
+
+    private static string FormatUtc(DateTime dt) =>
+        DateTime.SpecifyKind(dt, DateTimeKind.Utc).ToString("O");
 }
 
 public record WaypointRequest(Guid ClientId, int Order, double[] Coordinates);
