@@ -31,7 +31,7 @@ Pop-Location
 # ---- Upload React build to server ----
 Write-Host "Uploading React build..." -ForegroundColor Yellow
 ssh "${SERVER_USER}@${SERVER_HOST}" "rm -rf ${STATIC_DIR}/*"
-scp -r "${FRONTEND_DIR}\dist" "${SERVER_USER}@${SERVER_HOST}:/tmp/runscope-dist"
+scp -r "${FRONTEND_DIR}\dist\*" "${SERVER_USER}@${SERVER_HOST}:/tmp/runscope-dist"
 ssh "${SERVER_USER}@${SERVER_HOST}" "cp -r /tmp/runscope-dist/. ${STATIC_DIR}/ && rm -rf /tmp/runscope-dist"
 
 # ---- Build React app for Capacitor (no service worker) ----

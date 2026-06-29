@@ -45,6 +45,97 @@ public static class UserEndpoints
 
             return Results.Ok(ToDto(user));
         });
+
+        // GET /api/users/me/prs — get all personal records for current user
+        group.MapGet("/me/prs", async (HttpContext ctx, RunScopeDbContext db) =>
+        {
+            var userIdClaim = ctx.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!Guid.TryParse(userIdClaim, out var userId))
+                return Results.Unauthorized();
+
+            var prs = await db.PersonalRecords
+                .Where(pr => pr.UserId == userId)
+                .ToListAsync();
+
+            return Results.Ok(prs.Select(pr => new
+            {
+                distance = pr.Distance.ToString(),
+                timeSeconds = pr.TimeSeconds,
+                updatedAt = pr.UpdatedAt.ToString("O"),
+            }));
+        });
+
+        // PUT /api/users/me/prs/{distance} — upsert a personal record
+        group.MapPut("/me/prs/{distance}", async (
+            string distance,
+            HttpContext ctx,
+            RunScopeDbContext db,
+            UpsertPrRequest request) =>
+        {
+            var userIdClaim = ctx.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!Guid.TryParse(userIdClaim, out var userId))
+                return Results.Unauthorized();
+
+            if (!Enum.TryParse<RaceDistance>(distance, ignoreCase: true, out var raceDistance))
+                return Results.BadRequest("Invalid distance.");
+
+            if (request.TimeSeconds <= 0)
+                return Results.BadRequest("Time must be greater than zero.");
+
+            var pr = await db.PersonalRecords
+                .FirstOrDefaultAsync(p => p.UserId == userId && p.Distance == raceDistance);
+
+            if (pr is null)
+            {
+                pr = new PersonalRecord
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = userId,
+                    Distance = raceDistance,
+                    TimeSeconds = request.TimeSeconds,
+                    UpdatedAt = DateTime.UtcNow,
+                };
+                db.PersonalRecords.Add(pr);
+            }
+            else
+            {
+                pr.TimeSeconds = request.TimeSeconds;
+                pr.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new
+            {
+                distance = pr.Distance.ToString(),
+                timeSeconds = pr.TimeSeconds,
+                updatedAt = pr.UpdatedAt.ToString("O"),
+            });
+        });
+
+        // DELETE /api/users/me/prs/{distance} — remove a personal record
+        group.MapDelete("/me/prs/{distance}", async (
+            string distance,
+            HttpContext ctx,
+            RunScopeDbContext db) =>
+        {
+            var userIdClaim = ctx.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!Guid.TryParse(userIdClaim, out var userId))
+                return Results.Unauthorized();
+
+            if (!Enum.TryParse<RaceDistance>(distance, ignoreCase: true, out var raceDistance))
+                return Results.BadRequest("Invalid distance.");
+
+            var pr = await db.PersonalRecords
+                .FirstOrDefaultAsync(p => p.UserId == userId && p.Distance == raceDistance);
+
+            if (pr is null) return Results.NotFound();
+
+            db.PersonalRecords.Remove(pr);
+            await db.SaveChangesAsync();
+
+            return Results.NoContent();
+        });
     }
 
     private static object ToDto(User user) => new
@@ -58,3 +149,4 @@ public static class UserEndpoints
 }
 
 public record UpdatePreferencesRequest(string UnitPreference);
+public record UpsertPrRequest(int TimeSeconds);

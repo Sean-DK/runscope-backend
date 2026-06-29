@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using RunScope.Core.Data;
 
@@ -11,9 +12,11 @@ using RunScope.Core.Data;
 namespace RunScope.Core.Migrations
 {
     [DbContext(typeof(RunScopeDbContext))]
-    partial class RunScopeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260629205435_AddPersonalRecords")]
+    partial class AddPersonalRecords
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -44,9 +47,6 @@ namespace RunScope.Core.Migrations
                     b.Property<DateTime?>("FinishedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<int?>("PrTimeSeconds")
-                        .HasColumnType("int");
-
                     b.Property<Guid>("RouteId")
                         .HasColumnType("uniqueidentifier");
 
@@ -56,9 +56,6 @@ namespace RunScope.Core.Migrations
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<int?>("TargetTimeSeconds")
-                        .HasColumnType("int");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uniqueidentifier");

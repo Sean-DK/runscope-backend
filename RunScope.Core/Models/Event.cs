@@ -31,6 +31,10 @@ public class Event
 
     public CancelReason? CancelReason { get; set; }
 
+    public int? TargetTimeSeconds { get; set; }
+
+    public int? PrTimeSeconds { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public DateTime? StartedAt { get; set; }

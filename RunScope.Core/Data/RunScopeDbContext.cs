@@ -13,6 +13,7 @@ public class RunScopeDbContext(DbContextOptions<RunScopeDbContext> options)
     public DbSet<Event> Events => Set<Event>();
     public DbSet<EventLocation> EventLocations => Set<EventLocation>();
     public DbSet<OneTimeToken> OneTimeTokens => Set<OneTimeToken>();
+    public DbSet<PersonalRecord> PersonalRecords => Set<PersonalRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -92,6 +93,19 @@ public class RunScopeDbContext(DbContextOptions<RunScopeDbContext> options)
             e.HasOne(t => t.User)
                 .WithMany()
                 .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PersonalRecord>(e =>
+        {
+            e.HasKey(pr => pr.Id);
+            e.Property(pr => pr.Id).ValueGeneratedOnAdd();
+            // One PR per distance per user
+            e.HasIndex(pr => new { pr.UserId, pr.Distance }).IsUnique();
+            e.Property(pr => pr.Distance).HasConversion<string>();
+            e.HasOne(pr => pr.User)
+                .WithMany()
+                .HasForeignKey(pr => pr.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

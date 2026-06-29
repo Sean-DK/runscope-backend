@@ -14,7 +14,7 @@ public static class EventEndpoints
     {
         var group = app.MapGroup("/api/events");
 
-        // POST /api/events — create event (racer only)
+        // POST /api/events
         group.MapPost("/", async (
             [FromBody] CreateEventRequest request,
             HttpContext ctx,
@@ -31,8 +31,6 @@ public static class EventEndpoints
             if (route is null) return Results.NotFound("Route not found.");
 
             var eventCode = GenerateEventCode();
-
-            // Ensure code is unique
             while (await db.Events.AnyAsync(e => e.EventCode == eventCode))
                 eventCode = GenerateEventCode();
 
@@ -43,6 +41,8 @@ public static class EventEndpoints
                 RouteId = route.Id,
                 EventCode = eventCode,
                 Status = EventStatus.Pending,
+                TargetTimeSeconds = request.TargetTimeSeconds,
+                PrTimeSeconds = request.PrTimeSeconds,
                 CreatedAt = DateTime.UtcNow,
             };
 
@@ -252,6 +252,8 @@ public static class EventEndpoints
         id = ev.Id,
         eventCode = ev.EventCode,
         routeId = ev.RouteId,
+        targetTimeSeconds = ev.TargetTimeSeconds,
+        prTimeSeconds = ev.PrTimeSeconds,
         route = new
         {
             id = route.Id,
@@ -292,7 +294,7 @@ public static class EventEndpoints
     };
 
     private static string? FormatUtc(DateTime? dt) =>
-dt.HasValue
+    dt.HasValue
     ? DateTime.SpecifyKind(dt.Value, DateTimeKind.Utc).ToString("O")
     : null;
 
@@ -300,7 +302,7 @@ dt.HasValue
         DateTime.SpecifyKind(dt, DateTimeKind.Utc).ToString("O");
 }
 
-public record CreateEventRequest(Guid RouteId);
+public record CreateEventRequest(Guid RouteId, int? TargetTimeSeconds, int? PrTimeSeconds);
 public record UpdateStatusRequest(
     EventStatus Status,
     DateTime? StartedAt,
