@@ -85,7 +85,6 @@ public static class EventEndpoints
                 .FirstOrDefaultAsync(e => e.Id == id);
 
             if (ev is null) return Results.NotFound();
-            if (ev.Status == EventStatus.Ended) return Results.NotFound("Event has ended.");
 
             return Results.Ok(ToDto(ev, ev.Route));
         });
@@ -100,8 +99,7 @@ public static class EventEndpoints
                     .ThenInclude(r => r.Segments)
                 .Include(e => e.Locations.OrderByDescending(l => l.Timestamp).Take(1))
                 .FirstOrDefaultAsync(e =>
-                    e.EventCode == code.ToUpper() &&
-                    e.Status != EventStatus.Ended);
+                    e.EventCode == code.ToUpper());
 
             return ev is null ? Results.NotFound() : Results.Ok(ToDto(ev, ev.Route));
         });
