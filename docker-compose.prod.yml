@@ -21,6 +21,7 @@ services:
       - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=RunScope;User Id=sa;Password=${SQL_SA_PASSWORD};TrustServerCertificate=True;
       - Auth__Google__ClientId=${GOOGLE_CLIENT_ID}
       - Auth__Google__ClientSecret=${GOOGLE_CLIENT_SECRET}
+      - Mapbox__AccessToken=${MAPBOX_ACCESS_TOKEN} 
       - Cors__AllowedOrigins=${ALLOWED_ORIGINS}
     depends_on:
       - sqlserver

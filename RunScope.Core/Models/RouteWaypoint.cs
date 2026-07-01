@@ -12,5 +12,7 @@ public class RouteWaypoint
 
     public double Latitude { get; set; }
 
+    public double? ElevationMeters { get; set; }
+
     public Route Route { get; set; } = null!;
 }

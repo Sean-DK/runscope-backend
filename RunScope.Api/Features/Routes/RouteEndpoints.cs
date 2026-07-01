@@ -58,7 +58,9 @@ public static class RouteEndpoints
         group.MapPost("/", async (
             [FromBody] UpsertRouteRequest request,
             HttpContext ctx,
-            RunScopeDbContext db) =>
+            RunScopeDbContext db,
+            IConfiguration config,
+            IHttpClientFactory httpClientFactory) =>
         {
             var userId = GetUserId(ctx);
             if (userId is null) return Results.Unauthorized();
@@ -74,6 +76,15 @@ public static class RouteEndpoints
             };
 
             var (waypoints, segments) = BuildWaypointsAndSegments(route.Id, request.Waypoints, request.Segments);
+
+            // Fetch elevation for each waypoint from Mapbox
+            var mapboxToken = config["Mapbox:AccessToken"];
+            if (!string.IsNullOrEmpty(mapboxToken))
+            {
+                await EnrichWithElevation(waypoints, mapboxToken, httpClientFactory);
+                route.ElevationGainMeters = CalculateElevationGain(waypoints);
+            }
+
             route.Waypoints = waypoints;
             route.Segments = segments;
 
@@ -88,7 +99,9 @@ public static class RouteEndpoints
             Guid id,
             [FromBody] UpsertRouteRequest request,
             HttpContext ctx,
-            RunScopeDbContext db) =>
+            RunScopeDbContext db,
+            IConfiguration config,
+            IHttpClientFactory httpClientFactory) =>
         {
             var userId = GetUserId(ctx);
             if (userId is null) return Results.Unauthorized();
@@ -115,6 +128,14 @@ public static class RouteEndpoints
 
             var (newWaypoints, newSegments) = BuildWaypointsAndSegments(route.Id, request.Waypoints, request.Segments);
 
+            // Fetch elevation for each waypoint from Mapbox
+            var mapboxToken = config["Mapbox:AccessToken"];
+            if (!string.IsNullOrEmpty(mapboxToken))
+            {
+                await EnrichWithElevation(newWaypoints, mapboxToken, httpClientFactory);
+                route.ElevationGainMeters = CalculateElevationGain(newWaypoints);
+            }
+
             db.RouteWaypoints.AddRange(newWaypoints);
             db.RouteSegments.AddRange(newSegments);
             await db.SaveChangesAsync();
@@ -125,8 +146,11 @@ public static class RouteEndpoints
             return Results.Ok(ToDto(route));
         });
 
-        // DELETE /api/routes/{id}
-        group.MapDelete("/{id:guid}", async (Guid id, HttpContext ctx, RunScopeDbContext db) =>
+        group.MapDelete("/{id:guid}", async (
+            Guid id,
+            HttpContext ctx,
+            RunScopeDbContext db,
+            bool force = false) =>
         {
             var userId = GetUserId(ctx);
             if (userId is null) return Results.Unauthorized();
@@ -136,12 +160,22 @@ public static class RouteEndpoints
 
             if (route is null) return Results.NotFound();
 
-            // Check for linked events before attempting delete
-            var hasLinkedEvents = await db.Events.AnyAsync(e => e.RouteId == id);
-            if (hasLinkedEvents)
-                return Results.Conflict(
-                    "This route has past events linked to it and cannot be deleted. " +
-                    "You can still edit the route.");
+            if (!force)
+            {
+                var hasLinkedEvents = await db.Events.AnyAsync(e => e.RouteId == id);
+                if (hasLinkedEvents)
+                    return Results.Conflict(
+                        "This route has past events linked to it and cannot be deleted. " +
+                        "You can still edit the route.");
+            }
+            else
+            {
+                // Force delete — remove linked events first
+                var linkedEvents = await db.Events
+                    .Where(e => e.RouteId == id)
+                    .ToListAsync(); ;
+                db.Events.RemoveRange(linkedEvents);
+            }
 
             db.Routes.Remove(route);
 
@@ -151,7 +185,6 @@ public static class RouteEndpoints
             }
             catch (DbUpdateException)
             {
-                // Fallback in case the AnyAsync check races with a concurrent insert
                 return Results.Conflict(
                     "This route could not be deleted because it has linked events.");
             }
@@ -181,6 +214,7 @@ public static class RouteEndpoints
                 UserId = userId.Value,
                 Name = source.Name,
                 TotalDistance = source.TotalDistance,
+                ElevationGainMeters = source.ElevationGainMeters,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
                 Waypoints = source.Waypoints.Select(w => new RouteWaypoint
@@ -189,6 +223,7 @@ public static class RouteEndpoints
                     Order = w.Order,
                     Longitude = w.Longitude,
                     Latitude = w.Latitude,
+                    ElevationMeters = w.ElevationMeters,
                 }).ToList(),
                 Segments = source.Segments.Select(s => new RouteSegment
                 {
@@ -207,12 +242,74 @@ public static class RouteEndpoints
         }).RequireAuthorization();
     }
 
-    private static (List<RouteWaypoint> waypoints, List<RouteSegment> segments) BuildWaypointsAndSegments(
-    Guid routeId,
-    List<WaypointRequest> waypointRequests,
-    List<SegmentRequest> segmentRequests)
+    // ── Elevation helpers ───────────────────────────────────────────────────
+
+    private static async Task EnrichWithElevation(
+        List<RouteWaypoint> waypoints,
+        string mapboxToken,
+        IHttpClientFactory httpClientFactory)
     {
-        // Map client-side IDs to new server-side GUIDs
+        var client = httpClientFactory.CreateClient();
+
+        // Mapbox Tilequery API — terrain-rgb tileset gives elevation in meters
+        // Process in parallel but respect rate limits with a small batch delay
+        var tasks = waypoints.Select(async (wp, i) =>
+        {
+            // Stagger requests slightly to avoid rate limiting
+            await Task.Delay(i * 50);
+
+            var url = $"https://api.mapbox.com/v4/mapbox.mapbox-terrain-v2/tilequery/{wp.Longitude},{wp.Latitude}.json?layers=contour&limit=1&access_token={mapboxToken}";
+
+            try
+            {
+                var response = await client.GetStringAsync(url);
+                var json = JsonDocument.Parse(response);
+                var features = json.RootElement.GetProperty("features");
+
+                if (features.GetArrayLength() > 0)
+                {
+                    var ele = features[0]
+                        .GetProperty("properties")
+                        .GetProperty("ele");
+
+                    wp.ElevationMeters = ele.GetDouble();
+                }
+            }
+            catch
+            {
+                // If elevation lookup fails for a waypoint, leave it null
+                // rather than failing the entire route save
+            }
+        });
+
+        await Task.WhenAll(tasks);
+    }
+
+    private static double? CalculateElevationGain(List<RouteWaypoint> waypoints)
+    {
+        var ordered = waypoints.OrderBy(w => w.Order).ToList(); ;
+
+        // Need at least 2 waypoints with elevation data
+        if (ordered.Count < 2 || ordered.Any(w => w.ElevationMeters is null))
+            return null;
+
+        double gain = 0;
+        for (int i = 1; i < ordered.Count; i++)
+        {
+            var diff = ordered[i].ElevationMeters!.Value - ordered[i - 1].ElevationMeters!.Value;
+            if (diff > 0) gain += diff;
+        }
+
+        return gain;
+    }
+
+    // ── Shared helpers ──────────────────────────────────────────────────────
+
+    private static (List<RouteWaypoint> waypoints, List<RouteSegment> segments) BuildWaypointsAndSegments(
+        Guid routeId,
+        List<WaypointRequest> waypointRequests,
+        List<SegmentRequest> segmentRequests)
+    {
         var idMap = waypointRequests.ToDictionary(
             w => w.ClientId,
             w => Guid.NewGuid()
@@ -231,7 +328,6 @@ public static class RouteEndpoints
         {
             Id = Guid.NewGuid(),
             RouteId = routeId,
-            // Translate client IDs to server IDs using the map
             FromWaypointId = idMap.TryGetValue(s.FromWaypointId, out var fromId) ? fromId : s.FromWaypointId,
             ToWaypointId = idMap.TryGetValue(s.ToWaypointId, out var toId) ? toId : s.ToWaypointId,
             Distance = s.Distance,
@@ -252,6 +348,7 @@ public static class RouteEndpoints
         id = r.Id,
         name = r.Name,
         totalDistance = r.TotalDistance,
+        elevationGainMeters = r.ElevationGainMeters,
         createdAt = FormatUtc(r.CreatedAt),
         updatedAt = FormatUtc(r.UpdatedAt),
         waypoints = r.Waypoints
@@ -261,6 +358,7 @@ public static class RouteEndpoints
                 id = w.Id,
                 order = w.Order,
                 coordinates = new[] { w.Longitude, w.Latitude },
+                elevationMeters = w.ElevationMeters,
             }),
         segments = r.Segments.Select(s => new
         {

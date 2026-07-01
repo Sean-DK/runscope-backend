@@ -167,6 +167,8 @@ builder.Services.AddCors(options =>
 // OpenAPI
 builder.Services.AddOpenApi();
 
+builder.Services.AddHttpClient();
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())

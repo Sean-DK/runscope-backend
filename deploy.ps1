@@ -2,18 +2,26 @@
 
 $SERVER_USER = "seang"
 $SERVER_HOST = "192.168.1.101"
-$SERVER_DIR = "/opt/runscope"
+$SERVER_DIR  = "/opt/runscope"
 $FRONTEND_DIR = "..\runscope-frontend"
-$STATIC_DIR = "/var/www/runscope"
+$STATIC_DIR  = "/var/www/runscope"
+
+# Helper — throws if the last external command failed
+function Assert-Success {
+    param([string]$Step)
+    if ($LASTEXITCODE -ne 0) {
+        throw "❌ Step failed: $Step (exit code $LASTEXITCODE)"
+    }
+}
 
 Write-Host "RunScope Deploy" -ForegroundColor Cyan
 
 # Version: days since 1996-08-22 + time of day (24h, seconds precision)
-$epoch = [datetime]"1996-08-22"
-$now = Get-Date
+$epoch          = [datetime]"1996-08-22"
+$now            = Get-Date
 $daysSinceEpoch = [math]::Floor(($now - $epoch).TotalDays)
-$timeOfDay = $now.ToString("HHmmss")
-$appVersion = "$daysSinceEpoch.$timeOfDay"
+$timeOfDay      = $now.ToString("HHmmss")
+$appVersion     = "$daysSinceEpoch.$timeOfDay"
 
 Write-Host ">> Version: $appVersion" -ForegroundColor Cyan
 
@@ -21,48 +29,67 @@ Write-Host ">> Version: $appVersion" -ForegroundColor Cyan
 Write-Host "Building React app for web..." -ForegroundColor Yellow
 Push-Location $FRONTEND_DIR
 $mapboxToken = (Get-Content .env | Select-String "VITE_MAPBOX_TOKEN").ToString().Replace("VITE_MAPBOX_TOKEN=", "")
-$envContent = "VITE_API_BASE_URL=https://runscopeapi.stablesea.net`nVITE_MAPBOX_TOKEN=$mapboxToken`nVITE_SIGNALR_HUB_URL=https://runscopeapi.stablesea.net"
+$envContent  = "VITE_API_BASE_URL=https://runscopeapi.stablesea.net`nVITE_MAPBOX_TOKEN=$mapboxToken`nVITE_SIGNALR_HUB_URL=https://runscopeapi.stablesea.net"
 Set-Content .env.production $envContent
 $env:VITE_APP_VERSION = $appVersion
 npm run build
+Assert-Success "Web build"
 Remove-Item Env:\VITE_APP_VERSION -ErrorAction SilentlyContinue
 Pop-Location
 
 # ---- Upload React build to server ----
 Write-Host "Uploading React build..." -ForegroundColor Yellow
 ssh "${SERVER_USER}@${SERVER_HOST}" "rm -rf ${STATIC_DIR}/*"
+Assert-Success "Clear static dir"
 scp -r "${FRONTEND_DIR}\dist\*" "${SERVER_USER}@${SERVER_HOST}:/tmp/runscope-dist"
+Assert-Success "Upload dist to server"
 ssh "${SERVER_USER}@${SERVER_HOST}" "cp -r /tmp/runscope-dist/. ${STATIC_DIR}/ && rm -rf /tmp/runscope-dist"
+Assert-Success "Move dist to static dir"
 
 # ---- Build React app for Capacitor (no service worker) ----
 Write-Host "Building React app for Capacitor..." -ForegroundColor Yellow
 Push-Location $FRONTEND_DIR
-$env:BUILD_TARGET = "capacitor"
+$env:BUILD_TARGET    = "capacitor"
 $env:VITE_APP_VERSION = $appVersion
 npm run build
-Remove-Item Env:\BUILD_TARGET -ErrorAction SilentlyContinue
+Assert-Success "Capacitor build"
+Remove-Item Env:\BUILD_TARGET     -ErrorAction SilentlyContinue
 Remove-Item Env:\VITE_APP_VERSION -ErrorAction SilentlyContinue
+
 # ---- Sync Capacitor build ----
 Write-Host "Syncing Capacitor build..." -ForegroundColor Yellow
 npx cap sync android
+Assert-Success "Capacitor sync"
 Pop-Location
 
+# ---- Build API Docker image ----
 Write-Host "Building API Docker image..." -ForegroundColor Yellow
 docker build -f RunScope.Api\Dockerfile -t runscope-api:latest .
+Assert-Success "Docker build"
 
+# ---- Transfer Docker image to server ----
 Write-Host "Transferring Docker image to server..." -ForegroundColor Yellow
 docker save runscope-api:latest -o runscope-api.tar
+Assert-Success "Docker save"
 scp runscope-api.tar "${SERVER_USER}@${SERVER_HOST}:/tmp/runscope-api.tar"
+Assert-Success "SCP Docker image"
 ssh "${SERVER_USER}@${SERVER_HOST}" "docker load -i /tmp/runscope-api.tar && rm /tmp/runscope-api.tar"
+Assert-Success "Docker load on server"
 Remove-Item runscope-api.tar
 
+# ---- Upload docker-compose ----
 Write-Host "Uploading docker-compose.prod.yml..." -ForegroundColor Yellow
 ssh "${SERVER_USER}@${SERVER_HOST}" "mkdir -p $SERVER_DIR"
+Assert-Success "Create server dir"
 scp docker-compose.prod.yml "${SERVER_USER}@${SERVER_HOST}:${SERVER_DIR}/"
+Assert-Success "Upload docker-compose"
 
+# ---- Restart API container ----
 Write-Host "Restarting API container..." -ForegroundColor Yellow
 ssh "${SERVER_USER}@${SERVER_HOST}" "cd $SERVER_DIR && docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --force-recreate api"
+Assert-Success "Restart API container"
 
+# ---- Run migrations ----
 Write-Host "Waiting for API to start..." -ForegroundColor Yellow
 Start-Sleep -Seconds 5
 
@@ -73,4 +100,4 @@ try {
     Write-Host "Migration step skipped." -ForegroundColor Yellow
 }
 
-Write-Host "Deploy complete!" -ForegroundColor Green
+Write-Host "✅ Deploy complete! Version: $appVersion" -ForegroundColor Green
