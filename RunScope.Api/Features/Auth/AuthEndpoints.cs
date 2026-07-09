@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.EntityFrameworkCore;
 using RunScope.Core.Data;
-using RunScope.Core.Models;
 using System.Security.Claims;
 
 namespace RunScope.Api.Features.Auth;

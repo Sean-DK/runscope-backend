@@ -173,9 +173,9 @@ public static class EventEndpoints
                 {
                     status = ev.Status.ToString(),
                     cancelReason = ev.CancelReason?.ToString(),
-                    startedAt = ev.StartedAt,
-                    finishedAt = ev.FinishedAt,
-                    endedAt = ev.EndedAt,
+                    startedAt = FormatUtc(ev.StartedAt),
+                    finishedAt = FormatUtc(ev.FinishedAt),
+                    endedAt = FormatUtc(ev.EndedAt),
                 });
 
             return Results.Ok(new { status = ev.Status.ToString() });
@@ -199,6 +199,16 @@ public static class EventEndpoints
                     (e.Status == EventStatus.Pending || e.Status == EventStatus.Active));
 
             if (ev is null) return Results.NotFound();
+
+            var mostRecentLocation = await db.EventLocations
+                .Where(l => l.EventId == id)
+                .OrderByDescending(l => l.Timestamp)
+                .FirstOrDefaultAsync();
+
+            if (mostRecentLocation is not null && request.Timestamp <= mostRecentLocation.Timestamp)
+            {
+                return Results.Ok();
+            }
 
             var location = new EventLocation
             {

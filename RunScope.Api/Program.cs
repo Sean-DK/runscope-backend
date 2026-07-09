@@ -186,6 +186,7 @@ app.MapAuthEndpoints();
 app.MapRouteEndpoints();
 app.MapEventEndpoints();
 app.MapUserEndpoints();
+app.MapDebugEndpoints();
 
 // SignalR hub
 app.MapHub<SpectatorHub>("/hubs/spectator");
