@@ -77,14 +77,6 @@ public static class RouteEndpoints
 
             var (waypoints, segments) = BuildWaypointsAndSegments(route.Id, request.Waypoints, request.Segments);
 
-            // Fetch elevation for each waypoint from Mapbox
-            var mapboxToken = config["Mapbox:AccessToken"];
-            if (!string.IsNullOrEmpty(mapboxToken))
-            {
-                await EnrichWithElevation(waypoints, mapboxToken, httpClientFactory);
-                route.ElevationGainMeters = CalculateElevationGain(waypoints);
-            }
-
             route.Waypoints = waypoints;
             route.Segments = segments;
 
@@ -127,14 +119,6 @@ public static class RouteEndpoints
             await db.SaveChangesAsync();
 
             var (newWaypoints, newSegments) = BuildWaypointsAndSegments(route.Id, request.Waypoints, request.Segments);
-
-            // Fetch elevation for each waypoint from Mapbox
-            var mapboxToken = config["Mapbox:AccessToken"];
-            if (!string.IsNullOrEmpty(mapboxToken))
-            {
-                await EnrichWithElevation(newWaypoints, mapboxToken, httpClientFactory);
-                route.ElevationGainMeters = CalculateElevationGain(newWaypoints);
-            }
 
             db.RouteWaypoints.AddRange(newWaypoints);
             db.RouteSegments.AddRange(newSegments);
@@ -214,7 +198,6 @@ public static class RouteEndpoints
                 UserId = userId.Value,
                 Name = source.Name,
                 TotalDistance = source.TotalDistance,
-                ElevationGainMeters = source.ElevationGainMeters,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
                 Waypoints = source.Waypoints.Select(w => new RouteWaypoint
@@ -240,67 +223,6 @@ public static class RouteEndpoints
 
             return Results.Created($"/api/routes/{copy.Id}", ToDto(copy));
         }).RequireAuthorization();
-    }
-
-    // ── Elevation helpers ───────────────────────────────────────────────────
-
-    private static async Task EnrichWithElevation(
-        List<RouteWaypoint> waypoints,
-        string mapboxToken,
-        IHttpClientFactory httpClientFactory)
-    {
-        var client = httpClientFactory.CreateClient();
-
-        // Mapbox Tilequery API — terrain-rgb tileset gives elevation in meters
-        // Process in parallel but respect rate limits with a small batch delay
-        var tasks = waypoints.Select(async (wp, i) =>
-        {
-            // Stagger requests slightly to avoid rate limiting
-            await Task.Delay(i * 50);
-
-            var url = $"https://api.mapbox.com/v4/mapbox.mapbox-terrain-v2/tilequery/{wp.Longitude},{wp.Latitude}.json?layers=contour&limit=1&access_token={mapboxToken}";
-
-            try
-            {
-                var response = await client.GetStringAsync(url);
-                var json = JsonDocument.Parse(response);
-                var features = json.RootElement.GetProperty("features");
-
-                if (features.GetArrayLength() > 0)
-                {
-                    var ele = features[0]
-                        .GetProperty("properties")
-                        .GetProperty("ele");
-
-                    wp.ElevationMeters = ele.GetDouble();
-                }
-            }
-            catch
-            {
-                // If elevation lookup fails for a waypoint, leave it null
-                // rather than failing the entire route save
-            }
-        });
-
-        await Task.WhenAll(tasks);
-    }
-
-    private static double? CalculateElevationGain(List<RouteWaypoint> waypoints)
-    {
-        var ordered = waypoints.OrderBy(w => w.Order).ToList(); ;
-
-        // Need at least 2 waypoints with elevation data
-        if (ordered.Count < 2 || ordered.Any(w => w.ElevationMeters is null))
-            return null;
-
-        double gain = 0;
-        for (int i = 1; i < ordered.Count; i++)
-        {
-            var diff = ordered[i].ElevationMeters!.Value - ordered[i - 1].ElevationMeters!.Value;
-            if (diff > 0) gain += diff;
-        }
-
-        return gain;
     }
 
     // ── Shared helpers ──────────────────────────────────────────────────────
@@ -348,7 +270,6 @@ public static class RouteEndpoints
         id = r.Id,
         name = r.Name,
         totalDistance = r.TotalDistance,
-        elevationGainMeters = r.ElevationGainMeters,
         createdAt = FormatUtc(r.CreatedAt),
         updatedAt = FormatUtc(r.UpdatedAt),
         waypoints = r.Waypoints

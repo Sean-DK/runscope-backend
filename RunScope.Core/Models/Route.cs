@@ -10,8 +10,6 @@ public class Route
 
     public double TotalDistance { get; set; }
 
-    public double? ElevationGainMeters { get; set; }
-
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }
